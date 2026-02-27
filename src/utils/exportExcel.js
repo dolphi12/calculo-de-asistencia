@@ -1,25 +1,25 @@
-import * as XLSX from 'xlsx';
+import writeXlsxFile from 'write-excel-file/browser';
 
-export function exportToExcel(records) {
-  const data = records.map(r => ({
-    'ID': r.id,
-    'FECHA': r.fecha,
-    'NOMBRE': r.nombre,
-    'ENTRADA': r.entrada,
-    'SALIDA A COMER': r.salidaComer,
-    'REGRESO DE COMER': r.regresoComer,
-    'SALIDA A CENAR': r.salidaCenar,
-    'REGRESO DE CENAR': r.regresoCenar,
-    'SALIDA': r.salida,
-    'PERMISO (min)': r.permiso,
-    'DESCUENTO NO LABORADO (min)': r.descuentoNoLaborado ?? '',
-    'TIEMPO TRABAJADO (min)': r.tiempoTrabajado ?? '',
-    'HORAS EXTRA (min)': r.horasExtra ?? '',
-    'ALERTAS': (r.alerts || []).join('; '),
-  }));
+const SCHEMA = [
+  { column: 'ID',                        type: String, value: r => r.id },
+  { column: 'FECHA',                     type: String, value: r => r.fecha },
+  { column: 'NOMBRE',                    type: String, value: r => r.nombre },
+  { column: 'ENTRADA',                   type: String, value: r => r.entrada },
+  { column: 'SALIDA A COMER',            type: String, value: r => r.salidaComer },
+  { column: 'REGRESO DE COMER',          type: String, value: r => r.regresoComer },
+  { column: 'SALIDA A CENAR',            type: String, value: r => r.salidaCenar },
+  { column: 'REGRESO DE CENAR',          type: String, value: r => r.regresoCenar },
+  { column: 'SALIDA',                    type: String, value: r => r.salida },
+  { column: 'PERMISO (min)',             type: Number, value: r => r.permiso ?? 0 },
+  { column: 'DESCUENTO NO LABORADO (min)', type: Number, value: r => r.descuentoNoLaborado ?? 0 },
+  { column: 'TIEMPO TRABAJADO (min)',    type: Number, value: r => r.tiempoTrabajado ?? 0 },
+  { column: 'HORAS EXTRA (min)',         type: Number, value: r => r.horasExtra ?? 0 },
+  { column: 'ALERTAS',                   type: String, value: r => (r.alerts || []).join('; ') },
+];
 
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'ASISTENCIA');
-  XLSX.writeFile(wb, 'asistencia_calculada.xlsx');
+export async function exportToExcel(records) {
+  await writeXlsxFile(records, {
+    schema: SCHEMA,
+    fileName: 'asistencia_calculada.xlsx',
+  });
 }

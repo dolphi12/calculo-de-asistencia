@@ -1,25 +1,33 @@
-import * as XLSX from 'xlsx';
+import readXlsxFile from 'read-excel-file/browser';
 
-export function parseExcelFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const workbook = XLSX.read(e.target.result, { type: 'array' });
-        const sheet = workbook.Sheets['JORNADAS_CIERRE'];
-        if (!sheet) {
-          reject(new Error('Hoja JORNADAS_CIERRE no encontrada'));
-          return;
-        }
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        const records = rows.map(row => processRow(row));
-        resolve(records);
-      } catch(err) {
-        reject(err);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  });
+export async function parseExcelFile(file) {
+  // Read the JORNADAS_CIERRE sheet as raw rows (array of arrays)
+  let rows;
+  try {
+    rows = await readXlsxFile(file, { sheet: 'JORNADAS_CIERRE', dateFormat: 'yyyy-mm-dd' });
+  } catch (err) {
+    if (err.message && err.message.includes('not found')) {
+      throw new Error('Hoja JORNADAS_CIERRE no encontrada');
+    }
+    throw err;
+  }
+
+  if (!rows || rows.length < 2) return [];
+
+  // First row is the header
+  const headers = rows[0].map(h => (h == null ? '' : String(h).trim()));
+
+  const records = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    // Build an object keyed by header name
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = row[idx] ?? '';
+    });
+    records.push(processRow(obj));
+  }
+  return records;
 }
 
 function assignEvents(events) {
@@ -82,42 +90,49 @@ function timeToMinutes(timeStr) {
 
 function extractDate(val) {
   if (!val) return '';
+  // read-excel-file returns Date objects for date cells
+  if (val instanceof Date) {
+    const y = val.getFullYear();
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const d = String(val.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
   const str = String(val);
-  // If it's a date string like "2024-01-15" or "2024-01-15T..."
   if (str.includes('T')) return str.split('T')[0];
   if (str.match(/^\d{4}-\d{2}-\d{2}/)) return str.substring(0, 10);
-  // If it's a number (Excel serial date)
-  const num = Number(str);
-  if (!isNaN(num) && num > 40000) {
-    const date = XLSX.SSF.parse_date_code(num);
-    if (date) {
-      return `${date.y}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`;
-    }
-  }
   return str.length >= 10 ? str.substring(0, 10) : str;
+}
+
+function cellToString(val) {
+  if (val == null || val === '') return '';
+  // read-excel-file returns Date for time-formatted cells
+  if (val instanceof Date) {
+    const h = String(val.getUTCHours()).padStart(2, '0');
+    const m = String(val.getUTCMinutes()).padStart(2, '0');
+    return `${h}:${m}`;
+  }
+  return String(val).trim();
 }
 
 function processRow(row) {
   const events = [];
   for (let i = 1; i <= 12; i++) {
-    const key = `E${String(i).padStart(2,'0')}`;
-    const val = row[key];
-    if (val && String(val).trim() !== '') {
-      events.push(String(val).trim());
-    }
+    const key = `E${String(i).padStart(2, '0')}`;
+    const val = cellToString(row[key]);
+    if (val !== '') events.push(val);
   }
 
   const fields = assignEvents(events);
   const dateStr = extractDate(row.start_local || row.fecha_registro);
 
-  const codes = String(row.incidencia_codes || '').split(/[,;]/).map(c => c.trim()).filter(Boolean);
+  const codes = cellToString(row.incidencia_codes).split(/[,;]/).map(c => c.trim()).filter(Boolean);
   const alertCodes = ['FALTA_SALIDA','JORNADA_ABIERTA','EVENTO_SUELTO','PAUSA_LARGA'];
   const hasCodeAlert = codes.some(c => alertCodes.includes(c));
 
   return {
-    id: String(row.employee_id || ''),
+    id: cellToString(row.employee_id),
     fecha: dateStr,
-    nombre: String(row.employee_name || ''),
+    nombre: cellToString(row.employee_name),
     entrada: fields.entrada,
     salidaComer: fields.salidaComer,
     regresoComer: fields.regresoComer,
@@ -128,6 +143,6 @@ function processRow(row) {
     incidenciaCodes: codes,
     eventCount: events.length,
     hasCodeAlert,
-    uid: String(row.jornada_uid || row.__jornada_id || crypto.randomUUID()),
+    uid: cellToString(row.jornada_uid || row.__jornada_id) || crypto.randomUUID(),
   };
 }
