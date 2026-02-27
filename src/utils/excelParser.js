@@ -128,6 +128,6 @@ function processRow(row) {
     incidenciaCodes: codes,
     eventCount: events.length,
     hasCodeAlert,
-    uid: String(row.jornada_uid || row.__jornada_id || Math.random()),
+    uid: String(row.jornada_uid || row.__jornada_id || crypto.randomUUID()),
   };
 }

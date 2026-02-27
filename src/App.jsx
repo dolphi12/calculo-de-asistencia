@@ -73,7 +73,6 @@ export default function App() {
         <AttendanceTable
           records={filteredRecords}
           onUpdate={handleUpdate}
-          jornadaBase={jornadaBase}
         />
       </main>
     </div>
