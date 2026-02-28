@@ -1,10 +1,62 @@
 import readXlsxFile from 'read-excel-file/browser';
+import { unzip, zip, strToU8, strFromU8 } from 'fflate';
+
+/**
+ * Normalize inline rich-text strings in Excel sheet XML.
+ * Converts <is><r><rPr>…</rPr><t>a</t></r><r>…<t>b</t></r></is>
+ * into     <is><t>ab</t></is>
+ * so that read-excel-file can parse them.
+ */
+function normalizeInlineStrings(xml) {
+  return xml.replace(/<is>([\s\S]*?)<\/is>/g, (match, inner) => {
+    // Already simple: <is><t>…</t></is>
+    if (/^\s*<t[\s>]/.test(inner)) return match;
+    // Extract text from <t> elements inside <r> runs
+    const parts = [];
+    const re = /<t[^>]*>([\s\S]*?)<\/t>/g;
+    let m;
+    while ((m = re.exec(inner)) !== null) parts.push(m[1]);
+    return parts.length ? `<is><t>${parts.join('')}</t></is>` : match;
+  });
+}
+
+/**
+ * Pre-process an xlsx Blob/File so that inline rich-text strings are
+ * converted to simple inline strings before read-excel-file parses them.
+ */
+async function preprocessXlsx(file) {
+  const buf = await file.arrayBuffer();
+  const entries = await new Promise((resolve, reject) =>
+    unzip(new Uint8Array(buf), (err, data) => err ? reject(err) : resolve(data))
+  );
+  let modified = false;
+
+  for (const path of Object.keys(entries)) {
+    if (/^xl\/worksheets\/.*\.xml$/i.test(path)) {
+      const original = strFromU8(entries[path]);
+      const fixed = normalizeInlineStrings(original);
+      if (fixed !== original) {
+        entries[path] = strToU8(fixed);
+        modified = true;
+      }
+    }
+  }
+
+  if (!modified) return file;
+  const zipped = await new Promise((resolve, reject) =>
+    zip(entries, (err, data) => err ? reject(err) : resolve(data))
+  );
+  return new Blob([zipped], { type: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
 
 export async function parseExcelFile(file) {
+  // Pre-process to handle inline rich-text strings
+  const processedFile = await preprocessXlsx(file);
+
   // Read the JORNADAS_CIERRE sheet as raw rows (array of arrays)
   let rows;
   try {
-    rows = await readXlsxFile(file, { sheet: 'JORNADAS_CIERRE', dateFormat: 'yyyy-mm-dd' });
+    rows = await readXlsxFile(processedFile, { sheet: 'JORNADAS_CIERRE', dateFormat: 'yyyy-mm-dd' });
   } catch (err) {
     if (err.message && err.message.includes('not found')) {
       throw new Error('Hoja JORNADAS_CIERRE no encontrada');
