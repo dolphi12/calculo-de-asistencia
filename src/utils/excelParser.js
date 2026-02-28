@@ -1,5 +1,5 @@
 import readXlsxFile from 'read-excel-file/browser';
-import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
+import { unzip, zip, strToU8, strFromU8 } from 'fflate';
 
 /**
  * Normalize inline rich-text strings in Excel sheet XML.
@@ -26,7 +26,9 @@ function normalizeInlineStrings(xml) {
  */
 async function preprocessXlsx(file) {
   const buf = await file.arrayBuffer();
-  const entries = unzipSync(new Uint8Array(buf));
+  const entries = await new Promise((resolve, reject) =>
+    unzip(new Uint8Array(buf), (err, data) => err ? reject(err) : resolve(data))
+  );
   let modified = false;
 
   for (const path of Object.keys(entries)) {
@@ -41,7 +43,9 @@ async function preprocessXlsx(file) {
   }
 
   if (!modified) return file;
-  const zipped = zipSync(entries);
+  const zipped = await new Promise((resolve, reject) =>
+    zip(entries, (err, data) => err ? reject(err) : resolve(data))
+  );
   return new Blob([zipped], { type: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
